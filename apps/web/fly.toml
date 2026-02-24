@@ -1,0 +1,21 @@
+app = 'mvp-web-kiera-0224'
+primary_region = 'lax'
+
+[build]
+
+[env]
+  PORT = '3000'
+  NEXT_PUBLIC_API_URL = 'https://mvp-api-kiera-0224.fly.dev'
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
