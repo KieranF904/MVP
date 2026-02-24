@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 type Role = "admin" | "dispatcher" | "driver";
 
@@ -91,6 +91,7 @@ export default function DriverHubClient() {
   const [assignTemplateId, setAssignTemplateId] = useState("");
   const [assignDriverId, setAssignDriverId] = useState("u_driver_1");
   const [assignDueDate, setAssignDueDate] = useState("2026-03-01T12:00:00.000Z");
+  const [selectedDriverProfileId, setSelectedDriverProfileId] = useState("u_driver_1");
 
   const [taskSubmissions, setTaskSubmissions] = useState<
     Record<string, { files: Record<string, string>; notes: string }>
@@ -117,11 +118,15 @@ export default function DriverHubClient() {
   }, []);
 
   useEffect(() => {
-    if (!token || !user) {
+    const driverUsers = users.filter((candidate) => candidate.role === "driver");
+    if (!driverUsers.length) {
       return;
     }
-    void refreshData(token, user);
-  }, [token, user]);
+
+    if (!driverUsers.some((candidate) => candidate.id === selectedDriverProfileId)) {
+      setSelectedDriverProfileId(driverUsers[0].id);
+    }
+  }, [users, selectedDriverProfileId]);
 
   async function request(path: string, options?: RequestInit) {
     const response = await fetch(`${API_URL}${path}`, {
@@ -136,7 +141,7 @@ export default function DriverHubClient() {
     return response.json();
   }
 
-  async function refreshData(activeToken: string, activeUser: User) {
+  const refreshData = useCallback(async (activeToken: string, activeUser: User) => {
     setLoading(true);
     try {
       const headers = {
@@ -181,7 +186,14 @@ export default function DriverHubClient() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [API_URL]);
+
+  useEffect(() => {
+    if (!token || !user) {
+      return;
+    }
+    void refreshData(token, user);
+  }, [token, user, refreshData]);
 
   async function login(event: FormEvent) {
     event.preventDefault();
@@ -348,6 +360,18 @@ export default function DriverHubClient() {
 
   const drivers = users.filter((candidate) => candidate.role === "driver");
   const pendingReviewCount = reviewQueue.length;
+  const selectedDriver = drivers.find((candidate) => candidate.id === selectedDriverProfileId) ?? drivers[0];
+  const selectedDriverLicense = documents
+    .filter((doc) => doc.type === "driver_license" && doc.driverId === selectedDriver?.id)
+    .sort((a, b) => new Date(b.uploadedAt ?? 0).getTime() - new Date(a.uploadedAt ?? 0).getTime())[0];
+  const selectedDriverProfile = selectedDriver
+    ? getDriverPlaceholderProfile(selectedDriver.id)
+    : {
+        phone: "-",
+        depot: "-",
+        employmentStatus: "-",
+        assignedVehicle: "-",
+      };
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 to-white px-4 py-6">
@@ -495,6 +519,66 @@ export default function DriverHubClient() {
                   rows={users.map((u) => [u.name, u.username, <RolePill key={u.id} role={u.role} />, u.id])}
                   emptyText="No users available."
                 />
+              </Card>
+
+              <Card title="Driver Profile Viewer" subtitle="Admin/dispatcher can inspect profile and license status">
+                {drivers.length === 0 ? (
+                  <Empty text="No driver accounts found." />
+                ) : (
+                  <>
+                    <label className="mb-2 block text-xs font-medium text-slate-600">
+                      Select Driver
+                      <select
+                        className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm"
+                        value={selectedDriver?.id ?? ""}
+                        onChange={(event) => setSelectedDriverProfileId(event.target.value)}
+                      >
+                        {drivers.map((driver) => (
+                          <option key={driver.id} value={driver.id}>
+                            {driver.name} ({driver.username})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <ProfileField label="Name" value={selectedDriver?.name ?? "-"} />
+                      <ProfileField label="Username" value={selectedDriver?.username ?? "-"} />
+                      <ProfileField label="Employment status" value={selectedDriverProfile.employmentStatus} />
+                      <ProfileField label="Depot" value={selectedDriverProfile.depot} />
+                      <ProfileField label="Phone" value={selectedDriverProfile.phone} />
+                      <ProfileField label="Assigned vehicle" value={selectedDriverProfile.assignedVehicle} />
+                    </div>
+
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-sm font-semibold text-slate-800">Driver License</p>
+                      {!selectedDriverLicense ? (
+                        <p className="mt-2 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-2 py-2 text-xs text-amber-700">
+                          License not uploaded yet.
+                        </p>
+                      ) : (
+                        <div className="mt-2 space-y-2">
+                          <p className="text-xs text-slate-600">File: {selectedDriverLicense.fileName}</p>
+                          <p className="text-xs text-slate-600">Status: {selectedDriverLicense.status}</p>
+                          {isLikelyImageFile(selectedDriverLicense.fileName) ? (
+                            <a
+                              href={selectedDriverLicense.fileName}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-block rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700"
+                            >
+                              Open license photo
+                            </a>
+                          ) : (
+                            <div className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-4 text-xs text-slate-500">
+                              License uploaded. Preview unavailable in prototype unless file path is a URL.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </Card>
 
               <Card title="Assign Task" subtitle="Admin and dispatcher can send templates to drivers">
@@ -800,6 +884,30 @@ function SimpleTable({
 
 function Empty({ text }: { text: string }) {
   return <p className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500">{text}</p>;
+}
+
+function ProfileField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+      <p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-sm font-medium text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+function getDriverPlaceholderProfile(driverId: string) {
+  const suffix = driverId.replace(/[^0-9]/g, "") || "1";
+  return {
+    phone: `+49 152 ${suffix.padStart(4, "0").slice(0, 4)} ${suffix.padStart(4, "0").slice(0, 4)}`,
+    depot: "Main Depot",
+    employmentStatus: "Active",
+    assignedVehicle: `Truck-${suffix.padStart(3, "0").slice(0, 3)}`,
+  };
+}
+
+function isLikelyImageFile(value: string) {
+  const lower = value.toLowerCase();
+  return lower.startsWith("http://") || lower.startsWith("https://") || /\.(png|jpe?g|webp|gif)$/i.test(lower);
 }
 
 function formatDate(value?: string) {
