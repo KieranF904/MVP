@@ -48,9 +48,23 @@ type DriverDocument = {
   uploadedAt?: string;
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
+function resolveApiUrl() {
+  const configured = process.env.NEXT_PUBLIC_API_URL;
+  if (configured && configured.trim().length > 0) {
+    return configured;
+  }
+
+  if (typeof window !== "undefined") {
+    if (window.location.hostname.includes("fly.dev")) {
+      return "https://mvp-api-kiera-0224.fly.dev";
+    }
+  }
+
+  return "http://localhost:4001";
+}
 
 export default function DriverHubClient() {
+  const API_URL = useMemo(() => resolveApiUrl(), []);
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [username, setUsername] = useState("admin");
