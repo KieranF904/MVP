@@ -1,0 +1,13 @@
+{
+  "name": "driver-hub-prototype",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace web",
+    "dev:api": "npm run start:dev --workspace api",
+    "build": "npm run build --workspace api; npm run build --workspace web"
+  }
+}
